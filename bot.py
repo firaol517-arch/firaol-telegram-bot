@@ -1,5 +1,7 @@
 import logging
 import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import defaultdict
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
@@ -11,7 +13,26 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Configuration
+# --- Health Check Server for Render ---
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running')
+    def log_message(self, format, *args):
+        pass  # Suppress health check logs
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
+
+# Start health check server in background thread
+health_thread = threading.Thread(target=start_health_server, daemon=True)
+health_thread.start()
+
+# --- Bot Configuration ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8847444258:AAGWjra-ERw8Wd12SCwRPar1f7s9GqJhuzI")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
@@ -116,6 +137,7 @@ async def generate_and_reply(chat_id, user_text, reply_func):
 
 
 if __name__ == '__main__':
+    print("Bot is starting...")
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # Handle regular messages
@@ -124,5 +146,4 @@ if __name__ == '__main__':
     # Handle business messages (Chat Automation)
     application.add_handler(MessageHandler(filters.ALL, handle_business_message))
 
-    print("Bot is starting...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
