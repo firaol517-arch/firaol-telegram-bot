@@ -3,7 +3,7 @@ import os
 from collections import defaultdict
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-import google.generativeai as genai
+from openai import OpenAI
 
 # Enable logging
 logging.basicConfig(
@@ -13,11 +13,10 @@ logging.basicConfig(
 
 # Configuration
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8847444258:AAGWjra-ERw8Wd12SCwRPar1f7s9GqJhuzI")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+# Use official OpenAI API
+client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
 
 # Conversation context
 context_history = defaultdict(list)
@@ -90,34 +89,23 @@ async def handle_business_message(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def generate_and_reply(chat_id, user_text, reply_func):
-    """Generate AI response using Gemini and send it"""
-    context_history[chat_id].append({"role": "user", "parts": [user_text]})
+    """Generate AI response using OpenAI and send it"""
+    context_history[chat_id].append({"role": "user", "content": user_text})
 
-    # Build conversation for Gemini
-    chat = model.start_chat(history=[])
-    
-    # Send system prompt first
-    chat.send_message(SYSTEM_PROMPT + "\n\nRespond to the following conversation. Remember: SHORT responses only, match the language/script.")
-    
-    # Send conversation history
-    history = context_history[chat_id][-MAX_CONTEXT:]
-    for msg in history[:-1]:
-        if msg["role"] == "user":
-            chat.send_message(msg["parts"][0])
-        # Skip assistant messages in history replay to avoid confusion
-    
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.extend(context_history[chat_id][-MAX_CONTEXT:])
+
     try:
-        # Send the latest user message
-        response = chat.send_message(user_text)
-        bot_response = response.text.strip()
-        
-        # Clean up response - remove quotes if wrapped
-        if bot_response.startswith('"') and bot_response.endswith('"'):
-            bot_response = bot_response[1:-1]
-        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=60
+        )
+        bot_response = response.choices[0].message.content
         logging.info(f"Bot [{chat_id}]: {bot_response}")
 
-        context_history[chat_id].append({"role": "model", "parts": [bot_response]})
+        context_history[chat_id].append({"role": "assistant", "content": bot_response})
         if len(context_history[chat_id]) > MAX_CONTEXT:
             context_history[chat_id] = context_history[chat_id][-MAX_CONTEXT:]
 
